@@ -806,4 +806,54 @@ along with this software (see the LICENSE.md file). If not, see
             <message type="success">Queued file ${paymentMethodFileId} to send to ${systemMessageRemoteId} in message ${systemMessageId}</message>
         </actions>
     </service>
+
+     <service verb="mask" noun="CreditCardNumber">
+        <in-parameters>
+            <parameter name="toDate" required="false" type="Timestamp"/>
+            <parameter name="daysAgo" required="true" type="BigDecimal"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="maskedCardsCount" type="BigDecimal"/>
+        </out-parameters>
+        <actions>
+            <script>
+                <![CDATA[
+                    import org.moqui.context.ExecutionContext
+                    import org.moqui.entity.EntityListIterator
+                    import org.moqui.entity.EntityFind
+                    import org.moqui.entity.EntityCondition
+
+                    if (toDate == null) {
+                        toDate = new Timestamp(new Date().getTime()) 
+                    } 
+
+                    Timestamp fromDate = toDate.minus((int)daysAgo)
+
+                    EntityFind find = context.ec.entity.find("mantle.account.method.CreditCard")
+                        find.condition("maskingFlag", "N")
+                        find.condition("lastUpdatedStamp", EntityCondition.GREATER_THAN, fromDate)
+                        find.condition("lastUpdatedStamp", EntityCondition.LESS_THAN_EQUAL_TO, toDate)
+                        .disableAuthz().iterator()
+
+                    EntityListIterator eli
+                    try {
+                        eli = find.iterator()
+                        EntityValue nextValue
+                        maskedCardsCount = 0
+                        while ((nextValue = (EntityValue) eli.next()) != null) {
+                            String cardNumber = (String)nextValue.cardNumber 
+                            String maskedCardNumber = cardNumber ? '*'.padRight(cardNumber.length() - 4, '*') + cardNumber.substring(cardNumber.length() - 4, cardNumber.length()) : '';
+                            if (!cardNumber.startsWith("*")) {
+                                context.ec.service.sync().name("update#mantle.account.method.CreditCard")
+                                    .parameters([paymentMethodId:nextValue.paymentMethodId, cardNumber:maskedCardNumber, maskingFlag: "Y"]).call()
+                                maskedCardsCount++
+                            }
+                        }
+                    } finally {
+                        eli.close()
+                    }
+                ]]>
+            </script>
+        </actions>
+    </service>
 </services>
